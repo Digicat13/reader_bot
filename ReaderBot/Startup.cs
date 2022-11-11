@@ -19,7 +19,7 @@ namespace ReaderBot
 
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddHttpClient<ILibraryClient, LibraryClient>();
+            services.AddHttpClient<ILibraryClient, JavaLibreLibraryClient>();
             services.AddHostedService<BotClient>();
         }
 

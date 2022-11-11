@@ -15,15 +15,18 @@ namespace ReaderBot
     {
         private const string Token = "5776005980:AAHOaQwO6cHIgrMxSYDhlr1eUbabNhnTpT8";
 
+
         private TelegramBotClient _client;
         private readonly ILibraryClient _libraryClient;
         private readonly Dictionary<long, string> _userInputMap;
+        private readonly Dictionary<long, string> _userBookListMap;
 
         public BotClient(ILibraryClient libraryClient)
         {
             _libraryClient = libraryClient;
             _client = new TelegramBotClient(Token);
             _userInputMap = new();
+            _userBookListMap = new();
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -61,7 +64,7 @@ namespace ReaderBot
 
             if (update.CallbackQuery is { } callback)
             {
-                await HandleUpdateCallbackASync(botClient, callback.Message.Chat.Id, callback.Data, cancellationToken);
+                await HandleUpdateCallbackASync(botClient, callback, cancellationToken);
             }
 
             if (update.Message is not { } message)
@@ -104,8 +107,6 @@ namespace ReaderBot
                 .Take(Constants.PageSize)
                 .ToList();
 
-            List<KeyboardButton[]> buttons = new();
-
             var text = "";
             if (list.Count == 0)
             {
@@ -115,9 +116,11 @@ namespace ReaderBot
             {
                 for (int i = 0; i < list.Count; i++)
                 {
-                    text += $"{(pageNumber - 1) * Constants.PageSize + i + 1}: {list[i].Title} - {list[i].Author} \n\n";
+                    text += $"{(pageNumber - 1) * Constants.PageSize + i + 1}: <i><b>{list[i].Title}</b> - {list[i].Author}</i>\n    {list[i].Genre}\n\n";
                 }
             }
+
+            List<KeyboardButton[]> buttons = new();
 
             var inlineButtons = list
                 .Select((book, index) => InlineKeyboardButton
@@ -136,13 +139,13 @@ namespace ReaderBot
             if (pageNumber > 1)
             {
                 row.Add(InlineKeyboardButton.WithCallbackData(
-                    text: Constants.PreviousPageText,
+                    text: char.ConvertFromUtf32(Constants.LeftwardsArrowEmoji),
                     callbackData: JsonSerializer.Serialize(new NavigationCallback() { Type = CallbackType.PreviousPage, PageNumber = pageNumber - 1 })));
             }
             if (pageNumber < totalPages)
             {
                 row.Add(InlineKeyboardButton.WithCallbackData(
-                    text: Constants.NextPageText,
+                    text: char.ConvertFromUtf32(Constants.RightwardsArrowEmoji),
                     callbackData: JsonSerializer.Serialize(new NavigationCallback() { Type = CallbackType.NextPage, PageNumber = pageNumber + 1 })));
             }
             buttonsTable.Add(row);
@@ -153,23 +156,33 @@ namespace ReaderBot
                 chatId: chatId,
                 text: text,
                 replyMarkup: inlineKeyboard,
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken,
+                parseMode: ParseMode.Html);
         }
 
-        private async Task HandleUpdateCallbackASync(ITelegramBotClient botClient, long chatId, string callbackData, CancellationToken cancellationToken)
+        private async Task HandleUpdateCallbackASync(ITelegramBotClient botClient, CallbackQuery callbackQuery, CancellationToken cancellationToken)
         {
-            var callback = JsonSerializer.Deserialize<Callback>(callbackData);
-            var input = _userInputMap[chatId];
+            var callback = JsonSerializer.Deserialize<Callback>(callbackQuery.Data);
+            var chatId = callbackQuery.Message.Chat.Id;
+
+            if (!_userInputMap.TryGetValue(chatId, out string input))
+            {
+                return;
+            }
 
             switch (callback.Type)
             {
                 case CallbackType.NextPage:
                 case CallbackType.PreviousPage:
-                    var navigationCallback = JsonSerializer.Deserialize<NavigationCallback>(callbackData);
+                    var navigationCallback = JsonSerializer.Deserialize<NavigationCallback>(callbackQuery.Data);
                     await SendMessageAsync(botClient, input, chatId, navigationCallback.PageNumber, cancellationToken);
                     break;
+                case CallbackType.AddToList:
+
+                    await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, $"Успішно додано {char.ConvertFromUtf32(Constants.StarEmoji)}") ;
+                    break;
                 default:
-                    await SendBookFileAsync(botClient, chatId, callbackData, cancellationToken);
+                    await SendBookFileAsync(botClient,chatId, callbackQuery.Data, cancellationToken);
                     break;
             }
         }
@@ -183,9 +196,36 @@ namespace ReaderBot
 
             using var fileStream = await _libraryClient.DownloadBookAsync(callback.BookId, format, cancellationToken);
 
+            ///add to favourites button
+
+            var inlineKeyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData(text: "Додати до прочитаного", callbackData:  JsonSerializer.Serialize(new AddToListCallback() { Type = CallbackType.AddToList, BookId = callback.BookId }))
+                }
+            });
+
             await botClient.SendDocumentAsync(
                chatId: chatId,
-               document: new InputOnlineFile(fileStream, $"{input}.{format}"));
+               document: new InputOnlineFile(fileStream, $"{input}.{format}"),
+               replyMarkup: inlineKeyboard);
+        }
+
+        private async Task GetBookInfoByIdAsync(ITelegramBotClient botClient, long chatId, string callbackData, CancellationToken cancellationToken)
+        {
+            const string format = "fb2";
+
+            var callback = JsonSerializer.Deserialize<DownloadCallback>(callbackData);
+            var input = _userInputMap[chatId];
+
+            using var fileStream = await _libraryClient.DownloadBookAsync(callback.BookId, format, cancellationToken);
+
+
+            //await botClient.SendDocumentAsync(
+            //   chatId: chatId,
+            //   document: new InputOnlineFile(fileStream, $"{input}.{format}"),
+            //   replyMarkup: inlineKeyboard);
         }
     }
 }

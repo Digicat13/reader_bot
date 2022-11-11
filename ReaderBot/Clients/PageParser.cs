@@ -26,6 +26,5 @@ namespace ReaderBot.Clients
 
             return result;
         }
-
     }
 }

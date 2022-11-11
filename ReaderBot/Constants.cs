@@ -9,5 +9,9 @@
 
         public const string NextPageText = "->";
         public const string PreviousPageText = "<-";
+
+        public const int StarEmoji = 0x2B50;
+        public const int RightwardsArrowEmoji = 0x27A1;
+        public const int LeftwardsArrowEmoji = 0x2B05;
     }
 }
