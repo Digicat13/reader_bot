@@ -16,5 +16,7 @@
         public string Description { get; set; }
 
         public string DonwloadUrl { get; set; }
+
+        public string CookieValue { get; set; }
     }
 }

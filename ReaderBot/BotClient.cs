@@ -81,9 +81,37 @@ namespace ReaderBot
 
             Console.WriteLine($"Received a '{messageText}' message in chat {chatId}.");
 
-            _userInputMap[chatId] = messageText;
-            var pageNumber = 1;
-            await SendMessageAsync(botClient, messageText, chatId, pageNumber, cancellationToken);
+
+            switch (message.Text)
+            {
+                case Constants.StartCommand:
+                    await SendHelloMessageAsync(botClient, chatId, cancellationToken);
+                    break;
+                case Constants.InstructionCommand:
+                    await botClient.SendTextMessageAsync(
+                    chatId: chatId,
+                    text: Constants.UserHelpMessage,
+                    cancellationToken: cancellationToken);
+                    break;
+                case Constants.BookListCommand:
+                    await botClient.SendTextMessageAsync(
+                    chatId: chatId,
+                    text: _userBookListMap[chatId],
+                    cancellationToken: cancellationToken);
+                    break;
+                case Constants.SearchBookCommand:
+                    await botClient.SendTextMessageAsync(
+                        chatId: chatId,
+                        text: "Введи назву книжки для пошуку",
+                        cancellationToken: cancellationToken);
+                    //await SendBookSearchResultAsync(botClient, messageText, chatId, pageNumber, cancellationToken);
+                    break;
+                default:
+                    var pageNumber = 1;
+                    _userInputMap[chatId] = messageText;
+                    await SendBookSearchResultAsync(botClient, messageText, chatId, pageNumber, cancellationToken);
+                    break;
+            }
         }
 
         public Task HandlePollingErrorAsync(ITelegramBotClient botClient, Exception exception, CancellationToken cancellationToken)
@@ -99,7 +127,7 @@ namespace ReaderBot
             return Task.CompletedTask;
         }
 
-        private async Task SendMessageAsync(ITelegramBotClient botClient, string input, long chatId, int pageNumber, CancellationToken cancellationToken)
+        private async Task SendBookSearchResultAsync(ITelegramBotClient botClient, string input, long chatId, int pageNumber, CancellationToken cancellationToken)
         {
             var books = await _libraryClient.SearchBooksAsync(input);
             var list = books
@@ -110,7 +138,7 @@ namespace ReaderBot
             var text = "";
             if (list.Count == 0)
             {
-                text = "Нічого не знайдено :(";
+                text = Constants.NotFoundMessage;
             }
             else
             {
@@ -175,16 +203,86 @@ namespace ReaderBot
                 case CallbackType.NextPage:
                 case CallbackType.PreviousPage:
                     var navigationCallback = JsonSerializer.Deserialize<NavigationCallback>(callbackQuery.Data);
-                    await SendMessageAsync(botClient, input, chatId, navigationCallback.PageNumber, cancellationToken);
+                    await SendBookSearchResultAsync(botClient, input, chatId, navigationCallback.PageNumber, cancellationToken);
                     break;
                 case CallbackType.AddToList:
-
-                    await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, $"Успішно додано {char.ConvertFromUtf32(Constants.StarEmoji)}") ;
+                    await AddBookToListAsync(chatId, callbackQuery.Data, cancellationToken);
+                    await botClient.AnswerCallbackQueryAsync(callbackQuery.Id, $"Успішно додано {char.ConvertFromUtf32(Constants.StarEmoji)}");
                     break;
                 default:
-                    await SendBookFileAsync(botClient,chatId, callbackQuery.Data, cancellationToken);
+                    await SendBookInfoAsync(botClient, chatId, callbackQuery.Data, cancellationToken);
                     break;
             }
+        }
+
+        private async Task SendBookInfoAsync(ITelegramBotClient botClient, long chatId, string callbackData, CancellationToken cancellationToken)
+        {
+            const string format = "fb2";
+
+            var callback = JsonSerializer.Deserialize<DownloadCallback>(callbackData);
+
+            var book = await _libraryClient.GetBookInfoByIdAsync(callback.BookId, cancellationToken);
+
+            using var fileStream = await _libraryClient.DownloadBookByUrlAsync(book.DonwloadUrl, book.CookieValue, cancellationToken);
+
+            var inlineKeyboard = new InlineKeyboardMarkup(new[]
+            {
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData(text: "Додати до прочитаного", callbackData:  JsonSerializer.Serialize(new AddToListCallback() { Type = CallbackType.AddToList, BookId = callback.BookId }))
+                }
+            });
+
+            var text = $"{book.Title} - {book.Author}\n\n <i>{book.Description}</i>";
+
+            await botClient.SendTextMessageAsync(
+                chatId: chatId,
+                text: text,
+                cancellationToken: cancellationToken,
+                parseMode: ParseMode.Html);
+
+            await botClient.SendDocumentAsync(
+               chatId: chatId,
+               document: new InputOnlineFile(fileStream, $"{book.Title} - {book.Author}.{format}"),
+               replyMarkup: inlineKeyboard);
+        }
+
+        private async Task SendHelloMessageAsync(ITelegramBotClient botClient, long chatId, CancellationToken cancellationToken)
+        {
+
+            ReplyKeyboardMarkup replyKeyboardMarkup = new(new[]
+            {
+                new KeyboardButton[] {
+                    Constants.InstructionCommand,
+                    Constants.BookListCommand,
+                    Constants.SearchBookCommand},
+            })
+            {
+                ResizeKeyboard = true
+            };
+
+            Message sentMessage = await botClient.SendTextMessageAsync(
+                chatId: chatId,
+                text: Constants.HelloMessage,
+                replyMarkup: replyKeyboardMarkup,
+                cancellationToken: cancellationToken);
+        }
+
+        private async Task AddBookToListAsync(long chatId, string callbackData, CancellationToken cancellationToken)
+        {
+            var callback = JsonSerializer.Deserialize<AddToListCallback>(callbackData);
+
+            var book = await _libraryClient.GetBookInfoByIdAsync(callback.BookId, cancellationToken);
+
+            if(_userBookListMap.ContainsKey(chatId))
+            {
+                _userBookListMap[chatId] += $"{book.Title} - {book.Author}\n\n";
+            }
+            else
+            {
+                _userBookListMap.Add(chatId, $"{book.Title} - {book.Author}\n\n");
+            }
+           
         }
 
         private async Task SendBookFileAsync(ITelegramBotClient botClient, long chatId, string callbackData, CancellationToken cancellationToken)
@@ -195,8 +293,6 @@ namespace ReaderBot
             var input = _userInputMap[chatId];
 
             using var fileStream = await _libraryClient.DownloadBookAsync(callback.BookId, format, cancellationToken);
-
-            ///add to favourites button
 
             var inlineKeyboard = new InlineKeyboardMarkup(new[]
             {
@@ -220,12 +316,6 @@ namespace ReaderBot
             var input = _userInputMap[chatId];
 
             using var fileStream = await _libraryClient.DownloadBookAsync(callback.BookId, format, cancellationToken);
-
-
-            //await botClient.SendDocumentAsync(
-            //   chatId: chatId,
-            //   document: new InputOnlineFile(fileStream, $"{input}.{format}"),
-            //   replyMarkup: inlineKeyboard);
         }
     }
 }

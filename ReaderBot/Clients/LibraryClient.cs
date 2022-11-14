@@ -57,5 +57,15 @@ namespace ReaderBot.Clients
                 return default;
             }
         }
+
+        public Task<Stream> DownloadBookByUrlAsync(string url, string cookieValue = null, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<Book> GetBookInfoByIdAsync(string bookId, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
     }
 }

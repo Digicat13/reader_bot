@@ -38,9 +38,9 @@ namespace ReaderBot.Clients
             }
         }
 
-        public async Task<Book> GetBookInfoByIdAsync(int bookId, CancellationToken cancellationToken = default)
+        public async Task<Book> GetBookInfoByIdAsync(string bookId, CancellationToken cancellationToken = default)
         {
-            var url = $"{ApiUrl}java-book/book/{bookId}";
+            var url = $"{ApiUrl}/java-book/book/{bookId}";
 
             try
             {
@@ -69,6 +69,28 @@ namespace ReaderBot.Clients
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
                 var response = await _httpClient.SendAsync(request, cancellationToken);
+                var file = response.Content.ReadAsStream(cancellationToken);
+
+                return file;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                return default;
+            }
+        }
+
+        public async Task<Stream> DownloadBookByUrlAsync(string url, string cookieValue = null, CancellationToken cancellationToken = default)
+        {
+            var downloadUrl = $"{ApiUrl}{url}";
+
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+                request.Headers.Add("Cookie", $"java-book={cookieValue}"); 
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                var temp = await response.Content.ReadAsStringAsync();
                 var file = response.Content.ReadAsStream(cancellationToken);
 
                 return file;
