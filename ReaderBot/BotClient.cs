@@ -10,7 +10,6 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace ReaderBot
 {
-    //TODO move consts to file
     public class BotClient : BackgroundService
     {
         private const string Token = "5776005980:AAHOaQwO6cHIgrMxSYDhlr1eUbabNhnTpT8";
@@ -59,8 +58,6 @@ namespace ReaderBot
 
         public async Task HandleUpdateAsync(ITelegramBotClient botClient, Update update, CancellationToken cancellationToken)
         {
-            // Only process Message updates: https://core.telegram.org/bots/api#message
-
 
             if (update.CallbackQuery is { } callback)
             {
@@ -71,7 +68,7 @@ namespace ReaderBot
             {
                 return;
             }
-            // Only process text messages
+
             if (message.Text is not { } messageText)
             {
                 return;
@@ -104,7 +101,6 @@ namespace ReaderBot
                         chatId: chatId,
                         text: "Введи назву книжки для пошуку",
                         cancellationToken: cancellationToken);
-                    //await SendBookSearchResultAsync(botClient, messageText, chatId, pageNumber, cancellationToken);
                     break;
                 default:
                     var pageNumber = 1;
